@@ -139,7 +139,6 @@ Once the bot is running and in your server, use these commands:
 ## Dependencies
 
 - `discord.py` - Discord API wrapper
-- `py-cord` - Enhanced Discord library
 - `spotipy` - Spotify API wrapper
 - `yt-dlp` - YouTube video/audio downloader
 - `python-dotenv` - Environment variable management

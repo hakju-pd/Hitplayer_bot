@@ -7,6 +7,14 @@ from spotipy.oauth2 import SpotifyClientCredentials
 import yt_dlp
 import asyncio
 from collections import deque
+import logging
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger('hitplayer_bot')
 
 # Load environment variables
 load_dotenv()
@@ -105,7 +113,7 @@ def search_spotify_track(query):
             'duration': track['duration_ms'] // 1000
         }
     except Exception as e:
-        print(f"Error searching Spotify: {e}")
+        logger.error(f"Error searching Spotify: {e}")
         return None
 
 
@@ -122,7 +130,7 @@ async def get_youtube_url(search_query):
                     'duration': video.get('duration', 0)
                 }
     except Exception as e:
-        print(f"Error getting YouTube URL: {e}")
+        logger.error(f"Error getting YouTube URL: {e}")
     return None
 
 
@@ -152,12 +160,11 @@ async def play_next(guild_id):
             # Failed to get YouTube URL
             if queue.retry_count < queue.max_retries:
                 queue.retry_count += 1
-                print(f"Failed to get YouTube URL, retry {queue.retry_count}/{queue.max_retries}")
-                await play_next(guild_id)
+                logger.warning(f"Failed to get YouTube URL, retry {queue.retry_count}/{queue.max_retries}")
             else:
-                print(f"Skipping song after {queue.max_retries} failed attempts")
+                logger.error(f"Skipping song after {queue.max_retries} failed attempts")
                 queue.retry_count = 0
-                await play_next(guild_id)
+            await play_next(guild_id)
             return
         
         # Reset retry count on success
@@ -168,25 +175,26 @@ async def play_next(guild_id):
         
         def after_playing(error):
             if error:
-                print(f"Error playing audio: {error}")
+                logger.error(f"Error playing audio: {error}")
             asyncio.run_coroutine_threadsafe(play_next(guild_id), bot.loop)
         
         queue.voice_client.play(source, after=after_playing)
         
     except Exception as e:
-        print(f"Error playing song: {e}")
+        logger.error(f"Error playing song: {e}")
         # Only retry if we haven't exceeded max retries
         if queue.retry_count < queue.max_retries:
             queue.retry_count += 1
-            await play_next(guild_id)
         else:
-            print(f"Skipping song after {queue.max_retries} failed attempts")
+            logger.error(f"Skipping song after {queue.max_retries} failed attempts")
             queue.retry_count = 0
-            await play_next(guild_id)
+        await play_next(guild_id)
 
 
 @bot.event
 async def on_ready():
+    logger.info(f'{bot.user} has connected to Discord!')
+    logger.info(f'Bot is ready to play music from Spotify!')
     print(f'{bot.user} has connected to Discord!')
     print(f'Bot is ready to play music from Spotify!')
 
@@ -371,6 +379,7 @@ def main():
     """Run the bot"""
     token = os.getenv('DISCORD_TOKEN')
     if not token:
+        logger.error("DISCORD_TOKEN not found in environment variables!")
         print("Error: DISCORD_TOKEN not found in environment variables!")
         print("Please create a .env file with your Discord token.")
         return
