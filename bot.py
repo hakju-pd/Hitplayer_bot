@@ -8,6 +8,8 @@ import yt_dlp
 import asyncio
 from collections import deque
 import logging
+import itertools
+from urllib.parse import urlparse
 
 # Set up logging
 logging.basicConfig(
@@ -62,6 +64,8 @@ class MusicQueue:
         self.is_paused = False
         self.retry_count = 0
         self.max_retries = 3
+        self.consecutive_failures = 0
+        self.max_consecutive_failures = 5
         
     def add(self, song_info):
         self.queue.append(song_info)
@@ -77,6 +81,7 @@ class MusicQueue:
         self.is_playing = False
         self.is_paused = False
         self.retry_count = 0
+        self.consecutive_failures = 0
 
 
 def get_music_queue(guild_id):
@@ -124,8 +129,16 @@ async def get_youtube_url(search_query):
             info = await asyncio.to_thread(ydl.extract_info, f"ytsearch:{search_query}", download=False)
             if 'entries' in info and info['entries']:
                 video = info['entries'][0]
+                url = video['url']
+                
+                # Validate URL is from a trusted source
+                parsed = urlparse(url)
+                if parsed.scheme not in ['http', 'https']:
+                    logger.error(f"Invalid URL scheme: {parsed.scheme}")
+                    return None
+                
                 return {
-                    'url': video['url'],
+                    'url': url,
                     'title': video.get('title', 'Unknown'),
                     'duration': video.get('duration', 0)
                 }
@@ -142,11 +155,18 @@ async def play_next(guild_id):
         queue.is_playing = False
         return
     
+    # Check for too many consecutive failures
+    if queue.consecutive_failures >= queue.max_consecutive_failures:
+        logger.error(f"Stopping playback after {queue.max_consecutive_failures} consecutive failures")
+        queue.clear()
+        return
+    
     next_song = queue.get_next()
     if not next_song:
         queue.is_playing = False
         queue.current = None
         queue.retry_count = 0
+        queue.consecutive_failures = 0
         return
     
     queue.current = next_song
@@ -158,6 +178,7 @@ async def play_next(guild_id):
         yt_info = await get_youtube_url(next_song['search_query'])
         if not yt_info:
             # Failed to get YouTube URL
+            queue.consecutive_failures += 1
             if queue.retry_count < queue.max_retries:
                 queue.retry_count += 1
                 logger.warning(f"Failed to get YouTube URL, retry {queue.retry_count}/{queue.max_retries}")
@@ -167,8 +188,9 @@ async def play_next(guild_id):
             await play_next(guild_id)
             return
         
-        # Reset retry count on success
+        # Reset counters on success
         queue.retry_count = 0
+        queue.consecutive_failures = 0
         
         # Play audio
         source = discord.FFmpegPCMAudio(yt_info['url'], **FFMPEG_OPTIONS)
@@ -182,6 +204,7 @@ async def play_next(guild_id):
         
     except Exception as e:
         logger.error(f"Error playing song: {e}")
+        queue.consecutive_failures += 1
         # Only retry if we haven't exceeded max retries
         if queue.retry_count < queue.max_retries:
             queue.retry_count += 1
@@ -195,8 +218,6 @@ async def play_next(guild_id):
 async def on_ready():
     logger.info(f'{bot.user} has connected to Discord!')
     logger.info(f'Bot is ready to play music from Spotify!')
-    print(f'{bot.user} has connected to Discord!')
-    print(f'Bot is ready to play music from Spotify!')
 
 
 @bot.command(name='play', help='Play a song from Spotify. Usage: !play <song name or Spotify URL>')
@@ -307,7 +328,7 @@ async def show_queue(ctx):
     if queue.queue:
         upcoming = "\n".join([
             f"{i+1}. **{song['title']}** by {song['artist']}"
-            for i, song in enumerate(list(queue.queue)[:10])
+            for i, song in enumerate(itertools.islice(queue.queue, 10))
         ])
         embed.add_field(name="Up Next", value=upcoming, inline=False)
         
@@ -380,8 +401,7 @@ def main():
     token = os.getenv('DISCORD_TOKEN')
     if not token:
         logger.error("DISCORD_TOKEN not found in environment variables!")
-        print("Error: DISCORD_TOKEN not found in environment variables!")
-        print("Please create a .env file with your Discord token.")
+        logger.info("Please create a .env file with your Discord token.")
         return
     
     bot.run(token)
