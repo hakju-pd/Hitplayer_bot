@@ -15,7 +15,7 @@ A Discord bot that allows you to play songs from Spotify directly in your Discor
 
 Before you begin, ensure you have:
 
-1. **Python 3.8 or higher** installed
+1. **Python 3.9 or higher** installed
 2. **FFmpeg** installed on your system
    - Ubuntu/Debian: `sudo apt-get install ffmpeg`
    - macOS: `brew install ffmpeg`
