@@ -52,6 +52,8 @@ class MusicQueue:
         self.voice_client = None
         self.is_playing = False
         self.is_paused = False
+        self.retry_count = 0
+        self.max_retries = 3
         
     def add(self, song_info):
         self.queue.append(song_info)
@@ -66,6 +68,7 @@ class MusicQueue:
         self.current = None
         self.is_playing = False
         self.is_paused = False
+        self.retry_count = 0
 
 
 def get_music_queue(guild_id):
@@ -135,6 +138,7 @@ async def play_next(guild_id):
     if not next_song:
         queue.is_playing = False
         queue.current = None
+        queue.retry_count = 0
         return
     
     queue.current = next_song
@@ -145,8 +149,19 @@ async def play_next(guild_id):
         # Get YouTube URL
         yt_info = await get_youtube_url(next_song['search_query'])
         if not yt_info:
-            await play_next(guild_id)
+            # Failed to get YouTube URL
+            if queue.retry_count < queue.max_retries:
+                queue.retry_count += 1
+                print(f"Failed to get YouTube URL, retry {queue.retry_count}/{queue.max_retries}")
+                await play_next(guild_id)
+            else:
+                print(f"Skipping song after {queue.max_retries} failed attempts")
+                queue.retry_count = 0
+                await play_next(guild_id)
             return
+        
+        # Reset retry count on success
+        queue.retry_count = 0
         
         # Play audio
         source = discord.FFmpegPCMAudio(yt_info['url'], **FFMPEG_OPTIONS)
@@ -160,7 +175,14 @@ async def play_next(guild_id):
         
     except Exception as e:
         print(f"Error playing song: {e}")
-        await play_next(guild_id)
+        # Only retry if we haven't exceeded max retries
+        if queue.retry_count < queue.max_retries:
+            queue.retry_count += 1
+            await play_next(guild_id)
+        else:
+            print(f"Skipping song after {queue.max_retries} failed attempts")
+            queue.retry_count = 0
+            await play_next(guild_id)
 
 
 @bot.event
