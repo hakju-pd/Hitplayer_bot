@@ -1,5 +1,6 @@
 # Environment variables
 .env
+token.txt
 
 # Python
 __pycache__/
